@@ -18,7 +18,7 @@ function joker(t){s.emit('player:joker',{type:t},r=>{if(r.error)return alert(r.e
  if(t==='x2'||t==='shield')document.getElementById('m').textContent=t==='x2'?'Score doublé activé':'Bouclier activé';render()})}
 function pick(i){if(answered)return;answered=true;s.emit('player:answer',{choice:i});document.getElementById('m').textContent='Réponse envoyée';render()}
 let opts=[];
-s.on('question',d=>{answered=false;opts=d.options;v.innerHTML=`<p class="hint">Question ${d.n}/${d.total}</p><div class="grid">${d.options.map((_,i)=>`<button class="opt o${i}" id="b${i}" onclick="pick(${i})">${SH[i]}</button>`).join('')}</div><p id="m" class="hint"></p><div id="jb"></div>`;render()});
+s.on('question',d=>{answered=false;opts=d.options;v.innerHTML=`<p class="hint">Question ${d.n}/${d.total}</p>${d.showText?`<h2 style="margin:.3em 0">${d.text}</h2>`:''}<div class="grid">${d.options.map((o,i)=>`<button class="opt o${i}" id="b${i}" onclick="pick(${i})">${SH[i]}${d.showText?' '+o:''}</button>`).join('')}</div><p id="m" class="hint"></p><div id="jb"></div>`;render()});
 s.on('result',r=>{v.innerHTML=`<h1>${r.pts>0?'Bonne réponse !':r.pts<0?'Raté':'Pas de points'}</h1><h1>${r.pts>0?'+':''}${r.pts} pts</h1><p>Bonne réponse : ${SH[r.correct]} ${opts[r.correct]}</p><p>Score : ${r.score} — ${r.rank}e sur ${r.total}</p>`});
 s.on('end',()=>{v.innerHTML+='<h1>Partie terminée</h1>'});
 </script></body></html>

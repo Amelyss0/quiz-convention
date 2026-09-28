@@ -7,8 +7,9 @@
 <script>
 const s=io(),v=document.getElementById('v'),SH=['▲','◆','●','■'];let tick;
 const btn=(t,id='')=>`<button class="go" id="${id}" onclick="s.emit('host:next')">${t}</button>`;
-s.emit('host:create');
-s.on('host:created',({pin})=>{v.innerHTML=`<p class="hint">Scannez pour rejoindre, ou allez sur ${location.host}/play.html avec le code</p><div id="qr" class="qr"></div><div class="pin">${pin}</div><h1 id="n">En attente de joueurs…</h1>${btn('Lancer la partie')}`;
+let curPin=null;
+s.on('connect',()=>s.emit('host:create',{pin:curPin}));
+s.on('host:created',({pin})=>{curPin=pin;v.innerHTML=`<p class="hint">Scannez pour rejoindre, ou allez sur ${location.host}/play.html avec le code</p><div id="qr" class="qr"></div><div class="pin">${pin}</div><h1 id="n">En attente de joueurs…</h1><label class="hint"><input type="checkbox" style="width:auto;margin-right:8px" onchange="s.emit('host:opts',this.checked)">Afficher questions et réponses sur les téléphones</label><br>${btn('Lancer la partie')}`;
  if(window.QRCode)new QRCode(document.getElementById('qr'),{text:`${location.origin}/play.html?pin=${pin}`,width:220,height:220})});
 s.on('host:players',l=>document.getElementById('n').textContent=l.length+' joueur(s) : '+l.join(', '));
 s.on('question',q=>{clearInterval(tick);let t=q.time;

@@ -1,0 +1,6 @@
+[
+  { "text": "Quelle planète est la plus proche du Soleil ?", "options": ["Vénus", "Mercure", "Mars", "Terre"], "correct": 1, "time": 15 },
+  { "text": "Combien de joueurs dans une équipe de football sur le terrain ?", "options": ["9", "10", "11", "12"], "correct": 2, "time": 10 },
+  { "text": "Quel est le plus grand océan ?", "options": ["Atlantique", "Indien", "Arctique", "Pacifique"], "correct": 3, "time": 15 },
+  { "text": "Qui double la voix de Ellie Williams de The Last Of Us ?", "options": ["Lila Lacombe", "Ariane Deviègue", "Adeline Chetail", "Nathalie Karsenti"], "correct": 2, "time": 15 }
+]

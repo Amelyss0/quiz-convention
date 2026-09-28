@@ -1,0 +1,24 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz – Écran animateur</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"><script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script></head><body>
+<div id="v"></div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const s=io(),v=document.getElementById('v'),SH=['▲','◆','●','■'];let tick;
+const btn=(t,id='')=>`<button class="go" id="${id}" onclick="s.emit('host:next')">${t}</button>`;
+s.emit('host:create');
+s.on('host:created',({pin})=>{v.innerHTML=`<p class="hint">Scannez pour rejoindre, ou allez sur ${location.host}/play.html avec le code</p><div id="qr" class="qr"></div><div class="pin">${pin}</div><h1 id="n">En attente de joueurs…</h1>${btn('Lancer la partie')}`;
+ if(window.QRCode)new QRCode(document.getElementById('qr'),{text:`${location.origin}/play.html?pin=${pin}`,width:220,height:220})});
+s.on('host:players',l=>document.getElementById('n').textContent=l.length+' joueur(s) : '+l.join(', '));
+s.on('question',q=>{clearInterval(tick);let t=q.time;
+ v.innerHTML=`<p class="hint">Question ${q.n}/${q.total}</p><h1>${q.text}</h1><div class="timer" id="t">${t}</div>
+ <div class="grid">${q.options.map((o,i)=>`<div class="opt o${i}" id="o${i}">${SH[i]} ${o}</div>`).join('')}</div>
+ <p class="hint" id="c">0 réponse</p>${btn('Révéler la réponse','rv')}`;
+ tick=setInterval(()=>{t--;const e=document.getElementById('t');if(e)e.textContent=Math.max(t,0)},1000)});
+s.on('host:count',({done,total})=>{const e=document.getElementById('c');if(e)e.textContent=`${done}/${total} réponses`});
+s.on('reveal',r=>{clearInterval(tick);['rv','c','t'].forEach(i=>{const e=document.getElementById(i);if(e)e.remove()});
+ [0,1,2,3].forEach(i=>{const e=document.getElementById('o'+i);e.classList.add(i===r.correct?'win':'lose');e.innerHTML+=` (${r.counts[i]})`});
+ v.insertAdjacentHTML('beforeend',`<h1>Classement</h1><ol>${r.board.map(p=>`<li>${p.name} – ${p.score} pts</li>`).join('')}</ol>${btn('Question suivante')}`)});
+s.on('end',top=>{v.innerHTML=`<h1>Podium</h1><ol>${top.map(p=>`<li>${p.name} – ${p.score} pts</li>`).join('')}</ol>`});
+</script></body></html>

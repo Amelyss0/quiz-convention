@@ -1,0 +1,24 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz – Joueur</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"></head><body>
+<div id="v"><h1>Rejoindre la partie</h1>
+<input id="pin" inputmode="numeric" placeholder="Code PIN"><input id="name" placeholder="Votre pseudo" maxlength="16">
+<button class="go" onclick="join()">Entrer</button><p class="hint" id="e"></p></div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const s=io(),v=document.getElementById('v'),SH=['▲','◆','●','■'],JK={fifty:'50/50',x2:'x2',crowd:'Public',shield:'Bouclier'};let jokers={},answered=false;
+const q=new URLSearchParams(location.search).get('pin');if(q)document.getElementById('pin').value=q;
+function join(){const P=document.getElementById('pin').value.trim(),N=document.getElementById('name').value.trim(),E=document.getElementById('e');s.emit('player:join',{pin:P,name:N},r=>{if(r.error)return E.textContent=r.error;jokers=r.jokers;v.innerHTML='<h1>Vous êtes dans la partie</h1><p class="hint">Regardez le grand écran.</p>'})}
+function jbar(){return `<div class="jokers">${Object.keys(JK).map(k=>`<button class="jk" ${jokers[k]>0&&!answered?'':'disabled'} onclick="joker('${k}')">${JK[k]}<br>${jokers[k]||0}</button>`).join('')}</div>`}
+function render(){document.getElementById('jb').innerHTML=jbar()}
+function joker(t){s.emit('player:joker',{type:t},r=>{if(r.error)return alert(r.error);jokers=r.jokers;
+ if(r.remove)r.remove.forEach(i=>document.getElementById('b'+i).classList.add('off'));
+ if(r.percent)r.percent.forEach((p,i)=>document.getElementById('b'+i).innerHTML+=` ${p}%`);
+ if(t==='x2'||t==='shield')document.getElementById('m').textContent=t==='x2'?'Score doublé activé':'Bouclier activé';render()})}
+function pick(i){if(answered)return;answered=true;s.emit('player:answer',{choice:i});document.getElementById('m').textContent='Réponse envoyée';render()}
+let opts=[];
+s.on('question',d=>{answered=false;opts=d.options;v.innerHTML=`<p class="hint">Question ${d.n}/${d.total}</p><div class="grid">${d.options.map((_,i)=>`<button class="opt o${i}" id="b${i}" onclick="pick(${i})">${SH[i]}</button>`).join('')}</div><p id="m" class="hint"></p><div id="jb"></div>`;render()});
+s.on('result',r=>{v.innerHTML=`<h1>${r.pts>0?'Bonne réponse !':r.pts<0?'Raté':'Pas de points'}</h1><h1>${r.pts>0?'+':''}${r.pts} pts</h1><p>Bonne réponse : ${SH[r.correct]} ${opts[r.correct]}</p><p>Score : ${r.score} — ${r.rank}e sur ${r.total}</p>`});
+s.on('end',()=>{v.innerHTML+='<h1>Partie terminée</h1>'});
+</script></body></html>

@@ -14,7 +14,7 @@ function nextQ() {
   const q = Q[g.idx];
   g.state = 'question'; g.t0 = Date.now();
   Object.values(g.players).forEach(p => { p.ans = null; p.x2 = false; p.shield = false; });
-  io.emit('question', { n: g.idx + 1, total: Q.length, text: q.text, options: q.options, time: q.time });
+  io.emit('question', { n: g.idx + 1, total: Q.length, text: q.text, options: q.options, time: q.time, showText: g.showText });
   g.timer = setTimeout(reveal, q.time * 1000);
 }
 
@@ -37,17 +37,19 @@ function reveal() {
 }
 
 io.on('connection', s => {
-  s.on('host:create', () => {
-    g = { pin: String(1000 + Math.floor(Math.random() * 9000)), state: 'lobby', idx: -1, players: {}, host: s.id };
+  s.on('host:create', ({ pin } = {}) => {
+    if (g && pin && g.pin === pin) { g.host = s.id; return; } // l'animateur se reconnecte : on garde la partie
+    g = { pin: pin || String(1000 + Math.floor(Math.random() * 9000)), state: 'lobby', idx: -1, players: {}, host: s.id, showText: false };
     s.emit('host:created', { pin: g.pin });
   });
+  s.on('host:opts', v => { if (g && s.id === g.host) g.showText = !!v; });
   s.on('host:next', () => {
     if (!g || s.id !== g.host) return;
     if (g.state === 'question') reveal(); else if (g.state !== 'end') nextQ();
   });
   s.on('player:join', ({ pin, name }, cb) => {
     if (!g || pin !== g.pin || g.state !== 'lobby') return cb({ error: 'Code invalide ou partie déjà lancée.' });
-    g.players[s.id] = { name: String(name || 'Joueur').slice(0, 16), score: 0, jokers: { ...START_JOKERS } };
+    g.players[s.id] = { name: String(name || 'Joueur').replace(/[<>&"'`]/g, '').slice(0, 16) || 'Joueur', score: 0, jokers: { ...START_JOKERS } };
     io.to(g.host).emit('host:players', Object.values(g.players).map(p => p.name));
     cb({ ok: true, jokers: g.players[s.id].jokers });
   });

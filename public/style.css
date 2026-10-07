@@ -23,3 +23,6 @@ ol{font-size:clamp(1.2rem,3vw,2rem);text-align:left;padding-left:1.4em}
 #v{width:100%}
 .grid{margin:16px auto}
 ol{width:fit-content;margin:.5em auto}
+
+.sound-ctrl{position:fixed;top:12px;right:12px;display:flex;gap:8px;z-index:10}
+.sound-ctrl button{background:#3a2a7a;color:#fff;font-weight:700;cursor:pointer;padding:.5em .9em;font-size:.95rem;border-radius:12px}

@@ -1,6 +1,6 @@
 const express = require('express'), http = require('http'), { Server } = require('socket.io');
 const app = express(), srv = http.createServer(app), io = new Server(srv);
-const fs = require('fs'), path = require('path');
+const fs = require('fs'), path = require('path'), crypto = require('crypto');
 app.use(express.static('public'));
 app.use(express.json({ limit: '1mb' }));
 const Q_FILE = path.join(__dirname, 'questions.json');
@@ -18,7 +18,7 @@ function nextQ() {
   if (g.idx >= Q.length) { g.state = 'end'; io.emit('end', ranking().slice(0, 3)); return; }
   const q = Q[g.idx];
   g.state = 'question'; g.t0 = Date.now();
-  Object.values(g.players).forEach(p => { p.ans = null; p.x2 = false; p.shield = false; });
+  Object.values(g.players).forEach(p => { p.ans = null; p.x2 = false; p.shield = false; p.removed = []; p.result = null; });
   io.emit('question', { n: g.idx + 1, total: Q.length, text: q.text, options: q.options, time: q.time, showText: g.showText });
   g.timer = setTimeout(reveal, q.time * 1000);
 }
@@ -37,7 +37,11 @@ function reveal() {
     p.score = Math.max(0, p.score + pts); p.last = pts;
   });
   const r = ranking();
-  r.forEach((e, i) => io.to(e.id).emit('result', { pts: g.players[e.id].last, score: e.score, rank: i + 1, total: r.length, correct: q.correct }));
+  r.forEach((e, i) => {
+    const p = g.players[e.id];
+    p.result = { pts: p.last, score: e.score, rank: i + 1, total: r.length, correct: q.correct, option: q.options[q.correct] };
+    io.to(p.sid).emit('result', p.result);
+  });
   io.to(g.host).emit('reveal', { correct: q.correct, counts, board: r.slice(0, 5) });
 }
 
@@ -77,6 +81,23 @@ app.put('/api/questions', (req, res) => {
   res.json({ ok: true, count: Q.length });
 });
 
+// Chaque joueur reçoit une "clé" secrète gardée sur son téléphone.
+// C'est elle qui l'identifie (et pas sa connexion), pour qu'il puisse revenir s'il est déconnecté.
+const joueurDe = s => g && s.data.key && g.players[s.data.key];
+
+// Ce qu'un joueur qui revient doit voir, selon le moment de la partie
+function etatPourJoueur(p) {
+  const base = { jokers: p.jokers, name: p.name, score: p.score };
+  if (g.state === 'question') {
+    const q = Q[g.idx];
+    return { ...base, state: 'question', answered: !!p.ans, removed: p.removed,
+      question: { n: g.idx + 1, total: Q.length, text: q.text, options: q.options, time: q.time, showText: g.showText } };
+  }
+  if (g.state === 'reveal' && p.result) return { ...base, state: 'result', result: p.result };
+  if (g.state === 'end') return { ...base, state: 'end' };
+  return { ...base, state: 'lobby' };
+}
+
 io.on('connection', s => {
   s.on('host:create', ({ pin } = {}) => {
     if (g && pin && g.pin === pin) { g.host = s.id; return; } // l'animateur se reconnecte : on garde la partie
@@ -90,12 +111,21 @@ io.on('connection', s => {
   });
   s.on('player:join', ({ pin, name }, cb) => {
     if (!g || pin !== g.pin || g.state !== 'lobby') return cb({ error: 'Code invalide ou partie déjà lancée.' });
-    g.players[s.id] = { name: String(name || 'Joueur').replace(/[<>&"'`]/g, '').slice(0, 16) || 'Joueur', score: 0, jokers: { ...START_JOKERS } };
+    const key = crypto.randomUUID();
+    g.players[key] = { sid: s.id, name: String(name || 'Joueur').replace(/[<>&"'`]/g, '').slice(0, 16) || 'Joueur', score: 0, jokers: { ...START_JOKERS }, removed: [] };
+    s.data.key = key;
     io.to(g.host).emit('host:players', Object.values(g.players).map(p => p.name));
-    cb({ ok: true, jokers: g.players[s.id].jokers });
+    cb({ ok: true, jokers: g.players[key].jokers, key, pin: g.pin, name: g.players[key].name });
+  });
+  // Un joueur revient (téléphone verrouillé, Wi-Fi coupé, page rechargée…)
+  s.on('player:rejoin', ({ pin, key } = {}, cb = () => {}) => {
+    const p = g && pin === g.pin && g.players[key];
+    if (!p) return cb({ error: 'Partie introuvable.' });
+    p.sid = s.id; s.data.key = key;
+    cb({ ok: true, ...etatPourJoueur(p) });
   });
   s.on('player:answer', ({ choice }) => {
-    const p = g && g.players[s.id];
+    const p = joueurDe(s);
     if (!p || g.state !== 'question' || p.ans) return;
     p.ans = { choice, t: Date.now() - g.t0 };
     const done = Object.values(g.players).filter(x => x.ans).length;
@@ -103,13 +133,13 @@ io.on('connection', s => {
     if (done === Object.keys(g.players).length) reveal();
   });
   s.on('player:joker', ({ type }, cb) => {
-    const p = g && g.players[s.id];
+    const p = joueurDe(s);
     if (!p || g.state !== 'question' || p.ans || !(p.jokers[type] > 0)) return cb({ error: 'Joker indisponible.' });
     const q = Q[g.idx];
     let res = {};
     if (type === 'fifty') {
       const wrong = [0, 1, 2, 3].filter(i => i !== q.correct).sort(() => Math.random() - 0.5).slice(0, 2);
-      res = { remove: wrong };
+      res = { remove: wrong }; p.removed = wrong;
     } else if (type === 'crowd') {
       const votes = [0, 0, 0, 0], all = Object.values(g.players).filter(x => x.ans);
       all.forEach(x => votes[x.ans.choice]++);

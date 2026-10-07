@@ -7,18 +7,53 @@
 <button class="go" onclick="join()">Entrer</button><p class="hint" id="e"></p></div>
 <script src="/socket.io/socket.io.js"></script>
 <script>
-const s=io(),v=document.getElementById('v'),SH=['▲','◆','●','■'],JK={fifty:'50/50',x2:'x2',crowd:'Public',shield:'Bouclier'};let jokers={},answered=false;
+const s=io(),v=document.getElementById('v'),SH=['▲','◆','●','■'],JK={fifty:'50/50',x2:'x2',crowd:'Public',shield:'Bouclier'};
+let jokers={},answered=false,opts=[];
+const formulaire=v.innerHTML; // on garde le formulaire d'entrée pour pouvoir le réafficher
 const q=new URLSearchParams(location.search).get('pin');if(q)document.getElementById('pin').value=q;
-function join(){const P=document.getElementById('pin').value.trim(),N=document.getElementById('name').value.trim(),E=document.getElementById('e');s.emit('player:join',{pin:P,name:N},r=>{if(r.error)return E.textContent=r.error;jokers=r.jokers;v.innerHTML='<h1>Vous êtes dans la partie</h1><p class="hint">Regardez le grand écran.</p>'})}
+
+// ---------- Mémoire du téléphone : pour revenir dans la partie après une coupure ----------
+const LS='quizJoueur';
+const lireSession=()=>{try{return JSON.parse(localStorage.getItem(LS))}catch(e){return null}};
+const ecrireSession=d=>{try{localStorage.setItem(LS,JSON.stringify(d))}catch(e){}};
+const oublierSession=()=>{try{localStorage.removeItem(LS)}catch(e){}};
+
+// Bandeau "Reconnexion…" quand la connexion est coupée
+const bandeau=document.createElement('div');bandeau.className='reco';bandeau.textContent='Connexion perdue… reconnexion en cours';document.body.appendChild(bandeau);
+s.on('disconnect',()=>bandeau.classList.add('on'));
+
+// À chaque connexion (la première ou après une coupure), on essaie de reprendre sa place
+s.on('connect',()=>{
+  bandeau.classList.remove('on');
+  const m=lireSession();
+  if(!m)return;
+  s.emit('player:rejoin',{pin:m.pin,key:m.key},r=>{
+    if(r.error){oublierSession();if(!document.getElementById('pin')){v.innerHTML=formulaire}return}
+    jokers=r.jokers;
+    if(r.state==='question'){afficherQuestion(r.question);r.removed.forEach(i=>document.getElementById('b'+i).classList.add('off'));if(r.answered){answered=true;document.getElementById('m').textContent='Réponse envoyée';render()}}
+    else if(r.state==='result')afficherResultat(r.result,false);
+    else if(r.state==='end')v.innerHTML='<h1>Partie terminée</h1>';
+    else attente(r.name);
+  });
+});
+
+function attente(nom){v.innerHTML=`<h1>Vous êtes dans la partie</h1><p class="hint">${nom?nom+' — ':''}Regardez le grand écran.</p>`}
+
+function join(){const P=document.getElementById('pin').value.trim(),N=document.getElementById('name').value.trim(),E=document.getElementById('e');
+ s.emit('player:join',{pin:P,name:N},r=>{if(r.error)return E.textContent=r.error;jokers=r.jokers;ecrireSession({pin:r.pin,key:r.key});attente(r.name)})}
+
 function jbar(){return `<div class="jokers">${Object.keys(JK).map(k=>`<button class="jk" ${jokers[k]>0&&!answered?'':'disabled'} onclick="joker('${k}')">${JK[k]}<br>${jokers[k]||0}</button>`).join('')}</div>`}
-function render(){document.getElementById('jb').innerHTML=jbar()}
+function render(){const e=document.getElementById('jb');if(e)e.innerHTML=jbar()}
 function joker(t){s.emit('player:joker',{type:t},r=>{if(r.error)return alert(r.error);jokers=r.jokers;
  if(r.remove)r.remove.forEach(i=>document.getElementById('b'+i).classList.add('off'));
  if(r.percent)r.percent.forEach((p,i)=>document.getElementById('b'+i).innerHTML+=` ${p}%`);
  if(t==='x2'||t==='shield')document.getElementById('m').textContent=t==='x2'?'Score doublé activé':'Bouclier activé';render()})}
 function pick(i){if(answered)return;answered=true;s.emit('player:answer',{choice:i});document.getElementById('m').textContent='Réponse envoyée';render()}
-let opts=[];
-s.on('question',d=>{answered=false;opts=d.options;v.innerHTML=`<p class="hint">Question ${d.n}/${d.total}</p>${d.showText?`<h2 style="margin:.3em 0">${d.text}</h2>`:''}<div class="grid">${d.options.map((o,i)=>`<button class="opt o${i}" id="b${i}" onclick="pick(${i})">${SH[i]}${d.showText?' '+o:''}</button>`).join('')}</div><p id="m" class="hint"></p><div id="jb"></div>`;render()});
-s.on('result',r=>{if(navigator.vibrate)navigator.vibrate(r.pts>0?120:[200,80,200]);v.innerHTML=`<h1>${r.pts>0?'Bonne réponse !':r.pts<0?'Raté':'Pas de points'}</h1><h1>${r.pts>0?'+':''}${r.pts} pts</h1><p>Bonne réponse : ${SH[r.correct]} ${opts[r.correct]}</p><p>Score : ${r.score} — ${r.rank}e sur ${r.total}</p>`});
+
+function afficherQuestion(d){answered=false;opts=d.options;v.innerHTML=`<p class="hint">Question ${d.n}/${d.total}</p>${d.showText?`<h2 style="margin:.3em 0">${d.text}</h2>`:''}<div class="grid">${d.options.map((o,i)=>`<button class="opt o${i}" id="b${i}" onclick="pick(${i})">${SH[i]}${d.showText?' '+o:''}</button>`).join('')}</div><p id="m" class="hint"></p><div id="jb"></div>`;render()}
+function afficherResultat(r,vibrer=true){if(vibrer&&navigator.vibrate)navigator.vibrate(r.pts>0?120:[200,80,200]);v.innerHTML=`<h1>${r.pts>0?'Bonne réponse !':r.pts<0?'Raté':'Pas de points'}</h1><h1>${r.pts>0?'+':''}${r.pts} pts</h1><p>Bonne réponse : ${SH[r.correct]} ${r.option}</p><p>Score : ${r.score} — ${r.rank}e sur ${r.total}</p>`}
+
+s.on('question',afficherQuestion);
+s.on('result',r=>afficherResultat(r));
 s.on('end',()=>{v.innerHTML+='<h1>Partie terminée</h1>'});
 </script></body></html>

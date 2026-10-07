@@ -15,7 +15,7 @@ const ranking = () => Object.entries(g.players).map(([id, p]) => ({ id, name: p.
 
 function nextQ() {
   g.idx++;
-  if (g.idx >= Q.length) { g.state = 'end'; io.emit('end', ranking().slice(0, 3)); return; }
+  if (g.idx >= Q.length) { g.state = 'end'; io.emit('end', ranking().slice(0, 5).map(({ name, score }) => ({ name, score }))); return; }
   const q = Q[g.idx];
   g.state = 'question'; g.t0 = Date.now();
   Object.values(g.players).forEach(p => { p.ans = null; p.x2 = false; p.shield = false; p.removed = []; p.result = null; });
@@ -42,7 +42,7 @@ function reveal() {
     p.result = { pts: p.last, score: e.score, rank: i + 1, total: r.length, correct: q.correct, option: q.options[q.correct] };
     io.to(p.sid).emit('result', p.result);
   });
-  io.to(g.host).emit('reveal', { correct: q.correct, counts, board: r.slice(0, 5) });
+  io.to(g.host).emit('reveal', { correct: q.correct, counts, board: r.slice(0, 5).map(({ name, score }) => ({ name, score })) });
 }
 
 // ---------- Administration des questions ----------

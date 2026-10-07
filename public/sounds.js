@@ -53,6 +53,12 @@ const Sons = (() => {
     // Révélation de la bonne réponse : "ding ding"
     revelation: jouer(() => { note(880, 0, 0.35, 'triangle', 0.3); note(1320, 0.15, 0.5, 'triangle', 0.25); }),
 
+    // Révélation du 3e ou du 2e : roulement + "ta-da"
+    place: jouer(() => {
+      for (let k = 0; k < 8; k++) note(180 + k * 8, k * 0.05, 0.05, 'triangle', 0.08);
+      note(587, 0.45, 0.18, 'square', 0.13); note(784, 0.62, 0.45, 'square', 0.13);
+    }),
+
     // Podium : petite fanfare
     podium: jouer(() => {
       [[523, 0], [659, 0.15], [784, 0.3], [1047, 0.45], [784, 0.7], [1047, 0.85]]

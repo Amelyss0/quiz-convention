@@ -28,3 +28,26 @@ ol{width:fit-content;margin:.5em auto}
 .sound-ctrl button{background:#3a2a7a;color:#fff;font-weight:700;cursor:pointer;padding:.5em .9em;font-size:.95rem;border-radius:12px}
 .reco{position:fixed;top:0;left:0;right:0;background:#e5384b;color:#fff;font-weight:700;padding:8px;text-align:center;transform:translateY(-100%);transition:transform .2s}
 .reco.on{transform:none}
+
+/* ---------- Podium ---------- */
+.pod-title{margin-bottom:.1em}
+.podium{display:flex;align-items:flex-end;justify-content:center;gap:clamp(8px,2vw,24px);width:min(96vw,1000px);margin:0 auto;height:min(62vh,560px)}
+.pod-col{flex:1;max-width:300px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.pod-top{display:flex;flex-direction:column;align-items:center;opacity:0;transform:translateY(20px) scale(.6);transition:opacity .5s .55s,transform .6s .55s cubic-bezier(.3,1.6,.5,1)}
+.pod-pillar{width:100%;height:0;border-radius:16px 16px 0 0;display:flex;align-items:flex-start;justify-content:center;transition:height .7s cubic-bezier(.2,.9,.3,1.1);overflow:hidden}
+.pod-pillar span{font-weight:800;font-size:clamp(2rem,6vw,4.5rem);color:rgba(255,255,255,.9);margin-top:.15em}
+.p1 .pod-pillar{background:linear-gradient(#f6c12a,#b07a00)}.p2 .pod-pillar{background:linear-gradient(#c0c6cf,#6f7783)}.p3 .pod-pillar{background:linear-gradient(#cd7f32,#7a3e0e)}
+.p1.show .pod-pillar{height:46%}.p2.show .pod-pillar{height:33%}.p3.show .pod-pillar{height:22%}
+.pod-col.show .pod-top{opacity:1;transform:none}
+.pod-name{font-weight:800;font-size:clamp(1.1rem,2.8vw,2.2rem);margin-top:.2em;max-width:100%;overflow-wrap:anywhere}
+.p1 .pod-name{font-size:clamp(1.4rem,3.6vw,3rem);color:var(--c)}
+.pod-score{color:var(--muted);font-weight:700;margin-bottom:.4em}
+.pod-vide{color:var(--muted)}
+.trophy{filter:drop-shadow(0 6px 14px rgba(0,0,0,.4))}
+.p1.show .trophy{animation:shine 2.4s 1.2s ease-in-out infinite}
+@keyframes shine{0%,100%{transform:rotate(0)}25%{transform:rotate(-6deg) scale(1.05)}75%{transform:rotate(6deg) scale(1.05)}}
+.pod-rest{opacity:0;transform:translateY(16px);transition:all .6s;font-size:clamp(1.1rem,2.4vw,1.7rem);margin:.8em auto .2em}
+.pod-rest.show{opacity:1;transform:none}
+.confetti{position:fixed;inset:0;pointer-events:none;z-index:20}
+@media (prefers-reduced-motion:reduce){.pod-top,.pod-pillar,.pod-rest{transition:none}.p1.show .trophy{animation:none}}
+.p1 .trophy{width:clamp(80px,13vw,150px);height:auto}.p2 .trophy{width:clamp(60px,10vw,115px);height:auto}.p3 .trophy{width:clamp(45px,7.5vw,85px);height:auto}

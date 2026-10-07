@@ -5,6 +5,7 @@
 <div id="v"></div>
 <script src="/socket.io/socket.io.js"></script>
 <script src="sounds.js"></script>
+<script src="podium.js"></script>
 <script>
 const s=io(),v=document.getElementById('v'),SH=['▲','◆','●','■'];let tick;
 const btn=(t,id='')=>`<button class="go" id="${id}" onclick="s.emit('host:next')">${t}</button>`;
@@ -23,5 +24,5 @@ s.on('host:count',({done,total})=>{const e=document.getElementById('c');if(e)e.t
 s.on('reveal',r=>{clearInterval(tick);Sons.arreterMusique();Sons.revelation();['rv','c','t'].forEach(i=>{const e=document.getElementById(i);if(e)e.remove()});
  [0,1,2,3].forEach(i=>{const e=document.getElementById('o'+i);e.classList.add(i===r.correct?'win':'lose');e.innerHTML+=` (${r.counts[i]})`});
  v.insertAdjacentHTML('beforeend',`<h1>Classement</h1><ol>${r.board.map(p=>`<li>${p.name} – ${p.score} pts</li>`).join('')}</ol>${btn('Question suivante')}`)});
-s.on('end',top=>{Sons.arreterMusique();Sons.podium();v.innerHTML=`<h1>Podium</h1><ol>${top.map(p=>`<li>${p.name} – ${p.score} pts</li>`).join('')}</ol>`});
+s.on('end',top=>{clearInterval(tick);Sons.arreterMusique();Podium.afficher(v,top)});
 </script></body></html>

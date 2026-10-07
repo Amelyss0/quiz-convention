@@ -1,0 +1,250 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz – Questions</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  body{justify-content:flex-start}
+  .admin{width:min(96vw,860px);text-align:left}
+  .admin h1{font-size:clamp(1.8rem,5vw,3rem)}
+  .card{background:#2a1d5c;border-radius:18px;padding:16px;margin:12px 0}
+  .admin label{display:block;color:var(--muted);font-size:.95rem;margin:10px 0 4px}
+  .admin input,.admin textarea{width:100%;margin:0;text-align:left;color:#111;background:#fff;border-radius:12px;padding:.7em .9em;font:inherit}
+  .admin textarea{min-height:70px;resize:vertical;border:0}
+  .answers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .ans{display:flex;align-items:center;gap:8px;border-radius:14px;padding:8px}
+  .ans input[type=text]{flex:1}
+  .ans input[type=radio]{width:22px;height:22px;flex:none;accent-color:#fff;cursor:pointer}
+  .ans .sh{font-weight:800;color:#fff;width:1.2em;text-align:center}
+  .ans.o2 .sh{color:#1c1240}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .small{background:#3a2a7a;color:#fff;font-weight:700;cursor:pointer;padding:.55em .9em;font-size:.95rem;border-radius:12px}
+  .small:disabled{opacity:.3;cursor:default}
+  .danger{background:#7a2a3a}
+  .qitem{display:flex;gap:10px;align-items:center;background:#2a1d5c;border-radius:14px;padding:10px 12px;margin:8px 0}
+  .qitem .num{font-weight:800;color:var(--c);min-width:2em}
+  .qitem .txt{flex:1;min-width:0}
+  .qitem .txt b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .qitem .txt span{color:var(--muted);font-size:.9rem}
+  .qitem.editing{outline:3px solid var(--c)}
+  .msg{min-height:1.4em;font-weight:700}
+  .msg.ok{color:#5fe0a8}.msg.err{color:#ff8a97}
+  .bar{position:sticky;bottom:0;background:var(--bg);padding:12px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .hidden{display:none}
+  @media (max-width:560px){.bar{position:static}.answers{grid-template-columns:1fr}.qitem{flex-wrap:wrap}}
+</style></head><body>
+<div class="admin">
+
+  <!-- Écran 1 : mot de passe -->
+  <div id="login">
+    <h1>Gestion des questions</h1>
+    <div class="card">
+      <label for="pw">Mot de passe administrateur</label>
+      <input id="pw" type="password" autocomplete="current-password">
+      <button class="go" onclick="login()">Entrer</button>
+      <p class="msg err" id="loginMsg"></p>
+    </div>
+  </div>
+
+  <!-- Écran 2 : liste + formulaire -->
+  <div id="main" class="hidden">
+    <h1>Gestion des questions</h1>
+    <p class="hint">Modifie tes questions puis clique sur <b>Enregistrer</b>. Rien n'est sauvegardé avant.</p>
+
+    <div class="card">
+      <h2 id="formTitle" style="margin:0">Nouvelle question</h2>
+      <label for="fText">Question</label>
+      <textarea id="fText" maxlength="200" placeholder="Ex. : Quelle planète est la plus proche du Soleil ?"></textarea>
+      <label>Réponses (coche la bonne)</label>
+      <div class="answers" id="fAnswers"></div>
+      <label for="fTime">Temps pour répondre (secondes)</label>
+      <input id="fTime" type="number" min="5" max="120" value="15" style="width:120px">
+      <p class="msg err" id="formMsg"></p>
+      <div class="row">
+        <button class="go" id="fSubmit" onclick="submitForm()">Ajouter la question</button>
+        <button class="small hidden" id="fCancel" onclick="resetForm()">Annuler la modification</button>
+      </div>
+    </div>
+
+    <h2 id="listTitle">Questions</h2>
+    <div id="list"></div>
+
+    <div class="bar">
+      <button class="go" onclick="save()">Enregistrer</button>
+      <button class="small" onclick="exportFile()">Télécharger une sauvegarde</button>
+      <button class="small" onclick="document.getElementById('imp').click()">Importer une sauvegarde</button>
+      <input type="file" id="imp" accept=".json,application/json" class="hidden" onchange="importFile(this)">
+      <a class="small" href="host.html" style="text-decoration:none">Aller à l'écran animateur</a>
+      <span class="msg" id="saveMsg"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+const SH = ['▲', '◆', '●', '■'];
+let password = '';      // mot de passe tapé
+let questions = [];     // la liste en cours de modification
+let editIndex = -1;     // -1 = on ajoute une nouvelle question, sinon numéro de la question modifiée
+let unsaved = false;    // vrai si des changements ne sont pas encore enregistrés
+
+// Empêche d'injecter du HTML quand on affiche un texte tapé par l'utilisateur
+const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Petite fonction pour parler au serveur
+async function api(method, body) {
+  const r = await fetch('/api/questions', {
+    method,
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': password },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || 'Erreur du serveur.');
+  return data;
+}
+
+// ---------- Connexion ----------
+async function login() {
+  password = document.getElementById('pw').value;
+  try {
+    questions = await api('GET');
+    sessionStorageSet(password);
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('main').classList.remove('hidden');
+    resetForm(); renderList();
+  } catch (e) { document.getElementById('loginMsg').textContent = e.message; }
+}
+document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+
+// Garde le mot de passe le temps de l'onglet (pour ne pas le retaper après un rechargement)
+function sessionStorageSet(v) { try { sessionStorage.setItem('quizAdminPw', v); } catch (e) {} }
+try { const saved = sessionStorage.getItem('quizAdminPw'); if (saved) { document.getElementById('pw').value = saved; login(); } } catch (e) {}
+
+// ---------- Formulaire ----------
+function drawAnswerFields(options = ['', '', '', ''], correct = -1) {
+  document.getElementById('fAnswers').innerHTML = options.map((o, i) => `
+    <div class="ans o${i}">
+      <input type="radio" name="fCorrect" value="${i}" ${i === correct ? 'checked' : ''} aria-label="Bonne réponse ${i + 1}">
+      <span class="sh">${SH[i]}</span>
+      <input type="text" id="fOpt${i}" maxlength="80" placeholder="Réponse ${i + 1}" value="${esc(o)}">
+    </div>`).join('');
+}
+
+function resetForm() {
+  editIndex = -1;
+  document.getElementById('fText').value = '';
+  document.getElementById('fTime').value = 15;
+  drawAnswerFields();
+  document.getElementById('formTitle').textContent = 'Nouvelle question';
+  document.getElementById('fSubmit').textContent = 'Ajouter la question';
+  document.getElementById('fCancel').classList.add('hidden');
+  document.getElementById('formMsg').textContent = '';
+  renderList();
+}
+
+function editQuestion(i) {
+  const q = questions[i];
+  editIndex = i;
+  document.getElementById('fText').value = q.text;
+  document.getElementById('fTime').value = q.time;
+  drawAnswerFields(q.options, q.correct);
+  document.getElementById('formTitle').textContent = `Modifier la question ${i + 1}`;
+  document.getElementById('fSubmit').textContent = 'Valider la modification';
+  document.getElementById('fCancel').classList.remove('hidden');
+  document.getElementById('formMsg').textContent = '';
+  renderList();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function submitForm() {
+  const msg = document.getElementById('formMsg');
+  const text = document.getElementById('fText').value.trim();
+  const options = [0, 1, 2, 3].map(i => document.getElementById('fOpt' + i).value.trim());
+  const checked = document.querySelector('input[name=fCorrect]:checked');
+  const time = parseInt(document.getElementById('fTime').value, 10);
+
+  if (!text) return msg.textContent = 'Écris la question.';
+  if (options.some(o => !o)) return msg.textContent = 'Remplis les 4 réponses.';
+  if (!checked) return msg.textContent = 'Coche la bonne réponse.';
+  if (!(time >= 5 && time <= 120)) return msg.textContent = 'Le temps doit être entre 5 et 120 secondes.';
+
+  const q = { text, options, correct: Number(checked.value), time };
+  if (editIndex === -1) questions.push(q); else questions[editIndex] = q;
+  markUnsaved();
+  resetForm();
+}
+
+// ---------- Liste ----------
+function renderList() {
+  document.getElementById('listTitle').textContent = `Questions (${questions.length})`;
+  document.getElementById('list').innerHTML = questions.map((q, i) => `
+    <div class="qitem ${i === editIndex ? 'editing' : ''}">
+      <span class="num">${i + 1}.</span>
+      <div class="txt"><b>${esc(q.text)}</b><span>${SH[q.correct]} ${esc(q.options[q.correct])} · ${q.time} s</span></div>
+      <div class="row">
+        <button class="small" onclick="move(${i},-1)" ${i === 0 ? 'disabled' : ''} aria-label="Monter">↑</button>
+        <button class="small" onclick="move(${i},1)" ${i === questions.length - 1 ? 'disabled' : ''} aria-label="Descendre">↓</button>
+        <button class="small" onclick="editQuestion(${i})">Modifier</button>
+        <button class="small danger" onclick="removeQuestion(${i})">Supprimer</button>
+      </div>
+    </div>`).join('') || '<p class="hint">Aucune question pour l\'instant.</p>';
+}
+
+function move(i, dir) {
+  const j = i + dir;
+  [questions[i], questions[j]] = [questions[j], questions[i]];
+  if (editIndex === i) editIndex = j; else if (editIndex === j) editIndex = i;
+  markUnsaved(); renderList();
+}
+
+function removeQuestion(i) {
+  const btn = event.target;
+  // Premier clic : on demande confirmation sur le bouton lui-même
+  if (btn.dataset.confirm !== '1') { btn.dataset.confirm = '1'; btn.textContent = 'Confirmer ?'; return; }
+  questions.splice(i, 1);
+  if (editIndex === i) resetForm(); else if (editIndex > i) editIndex--;
+  markUnsaved(); renderList();
+}
+
+// ---------- Enregistrement ----------
+function markUnsaved() {
+  unsaved = true;
+  const m = document.getElementById('saveMsg');
+  m.className = 'msg err'; m.textContent = 'Modifications non enregistrées';
+}
+
+async function save() {
+  const m = document.getElementById('saveMsg');
+  try {
+    const r = await api('PUT', questions);
+    unsaved = false;
+    m.className = 'msg ok'; m.textContent = `Enregistré (${r.count} questions)`;
+  } catch (e) { m.className = 'msg err'; m.textContent = e.message; }
+}
+
+window.addEventListener('beforeunload', e => { if (unsaved) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---------- Sauvegarde dans un fichier ----------
+function exportFile() {
+  const blob = new Blob([JSON.stringify(questions, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'questions.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importFile(input) {
+  const file = input.files[0]; if (!file) return;
+  const m = document.getElementById('saveMsg');
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const list = JSON.parse(reader.result);
+      if (!Array.isArray(list)) throw new Error();
+      questions = list; markUnsaved(); resetForm();
+      m.textContent = 'Fichier importé — clique sur Enregistrer pour le garder';
+    } catch (e) { m.className = 'msg err'; m.textContent = 'Ce fichier n\'est pas une sauvegarde valide.'; }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+</script></body></html>

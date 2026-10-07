@@ -1,7 +1,12 @@
 const express = require('express'), http = require('http'), { Server } = require('socket.io');
 const app = express(), srv = http.createServer(app), io = new Server(srv);
+const fs = require('fs'), path = require('path');
 app.use(express.static('public'));
-const Q = require('./questions.json');
+app.use(express.json({ limit: '1mb' }));
+const Q_FILE = path.join(__dirname, 'questions.json');
+let Q = JSON.parse(fs.readFileSync(Q_FILE, 'utf-8'));
+// Mot de passe de la page d'administration (à définir sur Render dans "Environment")
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'convention';
 const START_JOKERS = { fifty: 1, x2: 1, crowd: 1, shield: 1 }; // paramétrable
 const MALUS = 200;
 let g = null;
@@ -35,6 +40,42 @@ function reveal() {
   r.forEach((e, i) => io.to(e.id).emit('result', { pts: g.players[e.id].last, score: e.score, rank: i + 1, total: r.length, correct: q.correct }));
   io.to(g.host).emit('reveal', { correct: q.correct, counts, board: r.slice(0, 5) });
 }
+
+// ---------- Administration des questions ----------
+const isAdmin = req => req.get('x-admin-password') === ADMIN_PASSWORD;
+
+function checkQuestions(list) {
+  if (!Array.isArray(list) || list.length === 0) return 'Il faut au moins une question.';
+  for (let i = 0; i < list.length; i++) {
+    const q = list[i], n = `Question ${i + 1} : `;
+    if (!q || typeof q.text !== 'string' || !q.text.trim()) return n + 'le texte est vide.';
+    if (!Array.isArray(q.options) || q.options.length !== 4 || q.options.some(o => typeof o !== 'string' || !o.trim())) return n + 'il faut 4 réponses remplies.';
+    if (![0, 1, 2, 3].includes(q.correct)) return n + 'choisis la bonne réponse.';
+    if (!Number.isInteger(q.time) || q.time < 5 || q.time > 120) return n + 'le temps doit être entre 5 et 120 secondes.';
+  }
+  return null;
+}
+
+app.get('/api/questions', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Mot de passe incorrect.' });
+  res.json(Q);
+});
+
+app.put('/api/questions', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Mot de passe incorrect.' });
+  if (g && (g.state === 'question' || g.state === 'reveal')) return res.status(409).json({ error: 'Une partie est en cours : attends la fin pour enregistrer.' });
+  const list = (req.body || []).map(q => ({
+    text: String(q.text || '').trim(),
+    options: (q.options || []).map(o => String(o || '').trim()),
+    correct: Number(q.correct),
+    time: Number(q.time)
+  }));
+  const err = checkQuestions(list);
+  if (err) return res.status(400).json({ error: err });
+  fs.writeFileSync(Q_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  Q = list;
+  res.json({ ok: true, count: Q.length });
+});
 
 io.on('connection', s => {
   s.on('host:create', ({ pin } = {}) => {
@@ -82,4 +123,7 @@ io.on('connection', s => {
   });
 });
 
-srv.listen(process.env.PORT || 3000, () => console.log('Quiz sur http://localhost:3000/host.html'));
+srv.listen(process.env.PORT || 3000, () => {
+  console.log('Quiz sur http://localhost:3000/host.html');
+  console.log('Questions sur http://localhost:3000/admin.html');
+});

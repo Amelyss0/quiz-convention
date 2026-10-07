@@ -1,6 +1,14 @@
 {
   "name": "quiz-convention",
   "version": "0.1.0",
-  "scripts": { "start": "node server.js" },
-  "dependencies": { "express": "^4.19.2", "socket.io": "^4.7.5" }
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
 }

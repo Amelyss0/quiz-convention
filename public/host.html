@@ -7,22 +7,69 @@
 <script src="sounds.js"></script>
 <script src="podium.js"></script>
 <script>
-const s=io(),v=document.getElementById('v'),SH=['▲','◆','●','■'];let tick;
+const s=io(),v=document.getElementById('v'),SH=['▲','◆','●','■'];let tick,nbJoueurs=0;
 const btn=(t,id='')=>`<button class="go" id="${id}" onclick="s.emit('host:next')">${t}</button>`;
-let curPin=null,nbJoueurs=0;
 Sons.installerBoutons();
-s.on('connect',()=>s.emit('host:create',{pin:curPin}));
-s.on('host:created',({pin})=>{curPin=pin;v.innerHTML=`<p class="hint">Scannez pour rejoindre, ou allez sur ${location.host}/play.html avec le code</p><div id="qr" class="qr"></div><div class="pin">${pin}</div><h1 id="n">En attente de joueurs…</h1><label class="hint"><input type="checkbox" style="width:auto;margin-right:8px" onchange="s.emit('host:opts',this.checked)">Afficher questions et réponses sur les téléphones</label><br>${btn('Lancer la partie')}<p><a class="hint" href="admin.html" target="_blank">Modifier les questions</a></p>`;
- if(window.QRCode)new QRCode(document.getElementById('qr'),{text:`${location.origin}/play.html?pin=${pin}`,width:220,height:220})});
-s.on('host:players',l=>{if(l.length>nbJoueurs)Sons.arrivee();nbJoueurs=l.length;document.getElementById('n').textContent=l.length+' joueur(s) : '+l.join(', ')});
-s.on('question',q=>{clearInterval(tick);let t=q.time;Sons.question();setTimeout(Sons.lancerMusique,400);
- v.innerHTML=`<p class="hint">Question ${q.n}/${q.total}</p><h1>${q.text}</h1><div class="timer" id="t">${t}</div>
- <div class="grid">${q.options.map((o,i)=>`<div class="opt o${i}" id="o${i}">${SH[i]} ${o}</div>`).join('')}</div>
- <p class="hint" id="c">0 réponse</p>${btn('Révéler la réponse','rv')}`;
- tick=setInterval(()=>{t--;if(t>0)Sons.tic(t);const e=document.getElementById('t');if(e)e.textContent=Math.max(t,0)},1000)});
-s.on('host:count',({done,total})=>{const e=document.getElementById('c');if(e)e.textContent=`${done}/${total} réponses`});
-s.on('reveal',r=>{clearInterval(tick);Sons.arreterMusique();Sons.revelation();['rv','c','t'].forEach(i=>{const e=document.getElementById(i);if(e)e.remove()});
- [0,1,2,3].forEach(i=>{const e=document.getElementById('o'+i);e.classList.add(i===r.correct?'win':'lose');e.innerHTML+=` (${r.counts[i]})`});
- v.insertAdjacentHTML('beforeend',`<h1>Classement</h1><ol>${r.board.map(p=>`<li>${p.name} – ${p.score} pts</li>`).join('')}</ol>${btn('Question suivante')}`)});
-s.on('end',top=>{clearInterval(tick);Sons.arreterMusique();Podium.afficher(v,top)});
+
+// ---------- Mémoire de l'onglet : pour reprendre la partie après un rechargement ----------
+const SS='quizAnimateur';
+const lireSession=()=>{try{return JSON.parse(sessionStorage.getItem(SS))||{}}catch(e){return{}}};
+const ecrireSession=d=>{try{sessionStorage.setItem(SS,JSON.stringify(d))}catch(e){}};
+
+// À chaque connexion (ouverture, rechargement, coupure réseau), on demande à reprendre sa partie
+s.on('connect',()=>{const m=lireSession();s.emit('host:create',{pin:m.pin,key:m.key})});
+s.on('host:created',({pin,key})=>{ecrireSession({pin,key});nbJoueurs=0;afficherAccueil(pin,[],false)});
+function nouvellePartie(){const m=lireSession();s.emit('host:create',{pin:m.pin,key:m.key,nouvelle:true})}
+
+// Le serveur nous renvoie où en est la partie : on réaffiche le bon écran
+s.on('host:state',st=>{
+  clearInterval(tick);nbJoueurs=st.players.length;
+  if(st.state==='lobby')afficherAccueil(st.pin,st.players,st.showText);
+  else if(st.state==='question'){afficherQuestion(st.question,st.remaining);compter({done:st.done,total:nbJoueurs});Sons.lancerMusique()}
+  else if(st.state==='reveal'){afficherQuestion(st.question,0);afficherRevelation(st.reveal,false)}
+  else if(st.state==='end')afficherFin(st.top);
+});
+
+// Quelqu'un ouvre l'écran animateur alors qu'une partie est en cours (autre onglet, autre PC…)
+s.on('host:busy',({wrong})=>{v.innerHTML=`<h1>Une partie est en cours</h1>
+ <p class="hint">Pour ne pas la casser, il faut le mot de passe admin pour en lancer une nouvelle.<br>Si tu es l'animateur, retourne plutôt sur ton onglet d'origine.</p>
+ <input id="fpw" type="password" placeholder="Mot de passe admin"><br>
+ <button class="go" onclick="s.emit('host:create',{password:document.getElementById('fpw').value})">Remplacer par une nouvelle partie</button>
+ <p class="hint" style="color:#ff8a97">${wrong?'Mot de passe incorrect.':''}</p>`});
+
+// ---------- Les écrans ----------
+function afficherAccueil(pin,joueurs,showText){
+  v.innerHTML=`<p class="hint">Scannez pour rejoindre, ou allez sur ${location.host}/play.html avec le code</p><div id="qr" class="qr"></div><div class="pin">${pin}</div><h1 id="n">En attente de joueurs…</h1><label class="hint"><input type="checkbox" style="width:auto;margin-right:8px" ${showText?'checked':''} onchange="s.emit('host:opts',this.checked)">Afficher questions et réponses sur les téléphones</label><br>${btn('Lancer la partie')}<p><a class="hint" href="admin.html" target="_blank">Modifier les questions</a></p>`;
+  if(window.QRCode)new QRCode(document.getElementById('qr'),{text:`${location.origin}/play.html?pin=${pin}`,width:220,height:220});
+  if(joueurs.length)listeJoueurs(joueurs);
+}
+function listeJoueurs(l){const e=document.getElementById('n');if(e)e.textContent=l.length+' joueur(s) : '+l.join(', ')}
+
+function afficherQuestion(q,restant){
+  clearInterval(tick);let t=restant;
+  v.innerHTML=`<p class="hint">Question ${q.n}/${q.total}</p><h1>${q.text}</h1><div class="timer" id="t">${t}</div>
+   <div class="grid">${q.options.map((o,i)=>`<div class="opt o${i}" id="o${i}">${SH[i]} ${o}</div>`).join('')}</div>
+   <p class="hint" id="c">0 réponse</p>${btn('Révéler la réponse','rv')}`;
+  tick=setInterval(()=>{t--;if(t>0)Sons.tic(t);const e=document.getElementById('t');if(e)e.textContent=Math.max(t,0)},1000);
+}
+function compter({done,total}){const e=document.getElementById('c');if(e)e.textContent=`${done}/${total} réponses`}
+
+function afficherRevelation(r,avecSon=true){
+  clearInterval(tick);Sons.arreterMusique();if(avecSon)Sons.revelation();
+  ['rv','c','t'].forEach(i=>{const e=document.getElementById(i);if(e)e.remove()});
+  [0,1,2,3].forEach(i=>{const e=document.getElementById('o'+i);e.classList.add(i===r.correct?'win':'lose');e.innerHTML+=` (${r.counts[i]})`});
+  v.insertAdjacentHTML('beforeend',`<h1>Classement</h1><ol>${r.board.map(p=>`<li>${p.name} – ${p.score} pts</li>`).join('')}</ol>${btn('Question suivante')}`);
+}
+
+function afficherFin(top){
+  clearInterval(tick);Sons.arreterMusique();Podium.afficher(v,top);
+  v.insertAdjacentHTML('beforeend','<p><button class="small-btn" onclick="nouvellePartie()">Nouvelle partie</button></p>');
+}
+
+// ---------- Ce que le serveur envoie pendant la partie ----------
+s.on('host:players',l=>{if(l.length>nbJoueurs)Sons.arrivee();nbJoueurs=l.length;listeJoueurs(l)});
+s.on('question',q=>{Sons.question();setTimeout(Sons.lancerMusique,400);afficherQuestion(q,q.time)});
+s.on('host:count',compter);
+s.on('reveal',r=>afficherRevelation(r));
+s.on('end',afficherFin);
 </script></body></html>

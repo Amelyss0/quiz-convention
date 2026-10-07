@@ -11,15 +11,23 @@ const START_JOKERS = { fifty: 1, x2: 1, crowd: 1, shield: 1 }; // paramétrable
 const MALUS = 200;
 let g = null;
 
+const salle = () => 'partie-' + g.pin;   // le "salon" des joueurs de la partie en cours
+const questionPourEcran = () => { const q = Q[g.idx]; return { n: g.idx + 1, total: Q.length, text: q.text, options: q.options, time: q.time, showText: g.showText }; };
+
 const ranking = () => Object.entries(g.players).map(([id, p]) => ({ id, name: p.name, score: p.score })).sort((a, b) => b.score - a.score);
 
 function nextQ() {
   g.idx++;
-  if (g.idx >= Q.length) { g.state = 'end'; io.emit('end', ranking().slice(0, 5).map(({ name, score }) => ({ name, score }))); return; }
+  if (g.idx >= Q.length) {
+    g.state = 'end';
+    g.top = ranking().slice(0, 5).map(({ name, score }) => ({ name, score }));
+    io.to(salle()).to(g.host).emit('end', g.top);
+    return;
+  }
   const q = Q[g.idx];
   g.state = 'question'; g.t0 = Date.now();
   Object.values(g.players).forEach(p => { p.ans = null; p.x2 = false; p.shield = false; p.removed = []; p.result = null; });
-  io.emit('question', { n: g.idx + 1, total: Q.length, text: q.text, options: q.options, time: q.time, showText: g.showText });
+  io.to(salle()).to(g.host).emit('question', questionPourEcran());
   g.timer = setTimeout(reveal, q.time * 1000);
 }
 
@@ -42,7 +50,8 @@ function reveal() {
     p.result = { pts: p.last, score: e.score, rank: i + 1, total: r.length, correct: q.correct, option: q.options[q.correct] };
     io.to(p.sid).emit('result', p.result);
   });
-  io.to(g.host).emit('reveal', { correct: q.correct, counts, board: r.slice(0, 5).map(({ name, score }) => ({ name, score })) });
+  g.lastReveal = { correct: q.correct, counts, board: r.slice(0, 5).map(({ name, score }) => ({ name, score })) };
+  io.to(g.host).emit('reveal', g.lastReveal);
 }
 
 // ---------- Administration des questions ----------
@@ -89,20 +98,39 @@ const joueurDe = s => g && s.data.key && g.players[s.data.key];
 function etatPourJoueur(p) {
   const base = { jokers: p.jokers, name: p.name, score: p.score };
   if (g.state === 'question') {
-    const q = Q[g.idx];
-    return { ...base, state: 'question', answered: !!p.ans, removed: p.removed,
-      question: { n: g.idx + 1, total: Q.length, text: q.text, options: q.options, time: q.time, showText: g.showText } };
+    return { ...base, state: 'question', answered: !!p.ans, removed: p.removed, question: questionPourEcran() };
   }
   if (g.state === 'reveal' && p.result) return { ...base, state: 'result', result: p.result };
   if (g.state === 'end') return { ...base, state: 'end' };
   return { ...base, state: 'lobby' };
 }
 
+// Ce que l'écran animateur doit réafficher s'il revient (page rechargée, connexion coupée…)
+function etatPourHote() {
+  const base = { pin: g.pin, players: Object.values(g.players).map(p => p.name), showText: g.showText };
+  if (g.state === 'question') {
+    const q = Q[g.idx];
+    return { ...base, state: 'question', question: questionPourEcran(),
+      remaining: Math.max(0, Math.ceil(q.time - (Date.now() - g.t0) / 1000)),
+      done: Object.values(g.players).filter(x => x.ans).length };
+  }
+  if (g.state === 'reveal') return { ...base, state: 'reveal', question: questionPourEcran(), reveal: g.lastReveal };
+  if (g.state === 'end') return { ...base, state: 'end', top: g.top };
+  return { ...base, state: 'lobby' };
+}
+
 io.on('connection', s => {
-  s.on('host:create', ({ pin } = {}) => {
-    if (g && pin && g.pin === pin) { g.host = s.id; return; } // l'animateur se reconnecte : on garde la partie
-    g = { pin: pin || String(1000 + Math.floor(Math.random() * 9000)), state: 'lobby', idx: -1, players: {}, host: s.id, showText: false };
-    s.emit('host:created', { pin: g.pin });
+  // L'écran animateur s'ouvre. Il garde une "clé d'animateur" secrète dans l'onglet :
+  //  - avec la bonne clé, il reprend sa partie (même après un rechargement) ;
+  //  - sans la clé, il ne peut pas écraser une partie en cours, sauf avec le mot de passe admin.
+  s.on('host:create', ({ pin, key, nouvelle, password } = {}) => {
+    const estHote = g && pin === g.pin && key === g.hostKey;
+    if (estHote && !nouvelle) { g.host = s.id; return s.emit('host:state', etatPourHote()); }
+    const enCours = g && g.state !== 'end' && Object.keys(g.players).length > 0;
+    if (enCours && !estHote && password !== ADMIN_PASSWORD) return s.emit('host:busy', { wrong: password !== undefined });
+    if (g) clearTimeout(g.timer);
+    g = { pin: String(1000 + Math.floor(Math.random() * 9000)), hostKey: crypto.randomUUID(), state: 'lobby', idx: -1, players: {}, host: s.id, showText: false };
+    s.emit('host:created', { pin: g.pin, key: g.hostKey });
   });
   s.on('host:opts', v => { if (g && s.id === g.host) g.showText = !!v; });
   s.on('host:next', () => {
@@ -113,7 +141,7 @@ io.on('connection', s => {
     if (!g || pin !== g.pin || g.state !== 'lobby') return cb({ error: 'Code invalide ou partie déjà lancée.' });
     const key = crypto.randomUUID();
     g.players[key] = { sid: s.id, name: String(name || 'Joueur').replace(/[<>&"'`]/g, '').slice(0, 16) || 'Joueur', score: 0, jokers: { ...START_JOKERS }, removed: [] };
-    s.data.key = key;
+    s.data.key = key; s.join(salle());
     io.to(g.host).emit('host:players', Object.values(g.players).map(p => p.name));
     cb({ ok: true, jokers: g.players[key].jokers, key, pin: g.pin, name: g.players[key].name });
   });
@@ -121,7 +149,7 @@ io.on('connection', s => {
   s.on('player:rejoin', ({ pin, key } = {}, cb = () => {}) => {
     const p = g && pin === g.pin && g.players[key];
     if (!p) return cb({ error: 'Partie introuvable.' });
-    p.sid = s.id; s.data.key = key;
+    p.sid = s.id; s.data.key = key; s.join(salle());
     cb({ ok: true, ...etatPourJoueur(p) });
   });
   s.on('player:answer', ({ choice }) => {

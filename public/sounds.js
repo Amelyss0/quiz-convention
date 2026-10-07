@@ -8,6 +8,14 @@ const Sons = (() => {
   let sonsActifs = true;     // bouton 🔊
   let musiqueActive = true;  // bouton 🎵
   let musique = null;        // la boucle de musique en cours (ou null)
+  let envieMusique = false;  // vrai pendant une question : la musique doit jouer dès que possible
+
+  // On se souvient des boutons 🔊 / 🎵 même si la page est rechargée
+  try {
+    const m = JSON.parse(sessionStorage.getItem('quizSons'));
+    if (m) { sonsActifs = m.sons; musiqueActive = m.musique; }
+  } catch (e) {}
+  const memoriser = () => { try { sessionStorage.setItem('quizSons', JSON.stringify({ sons: sonsActifs, musique: musiqueActive })); } catch (e) {} };
 
   // Le navigateur interdit le son tant qu'on n'a pas cliqué sur la page :
   // on crée / réveille le moteur audio au premier clic.
@@ -17,8 +25,10 @@ const Sons = (() => {
       master = ctx.createGain();
       master.gain.value = 0.6;
       master.connect(ctx.destination);
+      // Dès que le son est vraiment actif : on met à jour les boutons et on relance la musique si besoin
+      ctx.onstatechange = () => { majBoutons(); if (envieMusique) jouerBoucle(); };
     }
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state === 'suspended') ctx.resume().then(() => { majBoutons(); if (envieMusique) jouerBoucle(); });
     majBoutons();
   }
   const pret = () => ctx && ctx.state === 'running';
@@ -71,9 +81,13 @@ const Sons = (() => {
   const BASSE = [130.8, 130.8, 174.6, 196.0];                 // Do Do Fa Sol
   const ARPEGE = [[523, 659, 784, 659], [523, 659, 784, 659], [698, 880, 1047, 880], [784, 988, 1175, 988]];
 
-  function lancerMusique() {
-    arreterMusique();
-    if (!musiqueActive || !sonsActifs || !pret()) return;
+  // Début d'une question : on veut de la musique (elle attendra que le son soit actif)
+  function lancerMusique() { arreterBoucle(); envieMusique = true; jouerBoucle(); }
+  // Fin de la question : plus de musique
+  function arreterMusique() { envieMusique = false; arreterBoucle(); }
+
+  function jouerBoucle() {
+    if (musique || !musiqueActive || !sonsActifs || !pret()) return;
     const bus = ctx.createGain(); bus.gain.value = 0.3; bus.connect(master);   // 0.3 = volume de la musique (0 = muet, 1 = fort)
     const pas = 0.18;                    // durée d'une croche (secondes)
     let i = 0, prochain = ctx.currentTime + 0.05;
@@ -89,7 +103,7 @@ const Sons = (() => {
     musique = { minuterie, bus };
   }
 
-  function arreterMusique() {
+  function arreterBoucle() {
     if (!musique) return;
     clearInterval(musique.minuterie);
     const { bus } = musique; musique = null;
@@ -117,14 +131,14 @@ const Sons = (() => {
       e.stopPropagation();
       if (!pret()) return demarrer();
       sonsActifs = !sonsActifs;
-      if (!sonsActifs) arreterMusique();
-      majBoutons();
+      if (sonsActifs && envieMusique) jouerBoucle(); else arreterBoucle();
+      memoriser(); majBoutons();
     };
     document.getElementById('btnMusique').onclick = e => {
       e.stopPropagation();
       musiqueActive = !musiqueActive;
-      if (!musiqueActive) arreterMusique();
-      majBoutons();
+      if (musiqueActive && envieMusique) jouerBoucle(); else arreterBoucle();
+      memoriser(); majBoutons();
     };
     // N'importe quel clic sur la page active aussi le son
     document.addEventListener('click', demarrer);

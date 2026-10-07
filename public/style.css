@@ -51,3 +51,4 @@ ol{width:fit-content;margin:.5em auto}
 .confetti{position:fixed;inset:0;pointer-events:none;z-index:20}
 @media (prefers-reduced-motion:reduce){.pod-top,.pod-pillar,.pod-rest{transition:none}.p1.show .trophy{animation:none}}
 .p1 .trophy{width:clamp(80px,13vw,150px);height:auto}.p2 .trophy{width:clamp(60px,10vw,115px);height:auto}.p3 .trophy{width:clamp(45px,7.5vw,85px);height:auto}
+.small-btn{background:#3a2a7a;color:#fff;font-weight:700;cursor:pointer;padding:.55em 1em;border-radius:12px;margin-top:8px}

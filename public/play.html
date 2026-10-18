@@ -44,7 +44,7 @@ function join(){const P=document.getElementById('pin').value.trim(),N=document.g
 
 function jbar(){return `<div class="jokers">${Object.keys(JK).map(k=>`<button class="jk" ${jokers[k]>0&&!answered?'':'disabled'} onclick="joker('${k}')">${JK[k]}<br>${jokers[k]||0}</button>`).join('')}</div>`}
 function render(){const e=document.getElementById('jb');if(e)e.innerHTML=jbar()}
-function joker(t){s.emit('player:joker',{type:t},r=>{if(r.error)return alert(r.error);jokers=r.jokers;
+function joker(t){s.emit('player:joker',{type:t},r=>{const m=document.getElementById('m');if(r.error){if(m)m.textContent=r.error;return}jokers=r.jokers;
  if(r.remove)r.remove.forEach(i=>document.getElementById('b'+i).classList.add('off'));
  if(r.percent)r.percent.forEach((p,i)=>document.getElementById('b'+i).innerHTML+=` ${p}%`);
  if(t==='x2'||t==='shield')document.getElementById('m').textContent=t==='x2'?'Score doublé activé':'Bouclier activé';render()})}

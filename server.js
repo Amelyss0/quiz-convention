@@ -25,7 +25,7 @@ function nextQ() {
     return;
   }
   const q = Q[g.idx];
-  g.state = 'question'; g.t0 = Date.now();
+  g.state = 'question'; g.t0 = Date.now(); g.nbReponses = 0;
   Object.values(g.players).forEach(p => { p.ans = null; p.x2 = false; p.shield = false; p.removed = []; p.result = null; });
   io.to(salle()).to(g.host).emit('question', questionPourEcran());
   g.timer = setTimeout(reveal, q.time * 1000);
@@ -33,7 +33,7 @@ function nextQ() {
 
 function reveal() {
   if (g.state !== 'question') return;
-  clearTimeout(g.timer); g.state = 'reveal';
+  clearTimeout(g.timer); clearTimeout(g.compteurPrevu); g.compteurPrevu = null; g.state = 'reveal';
   const q = Q[g.idx], counts = [0, 0, 0, 0];
   Object.values(g.players).forEach(p => {
     let pts = 0;
@@ -112,32 +112,51 @@ function etatPourHote() {
     const q = Q[g.idx];
     return { ...base, state: 'question', question: questionPourEcran(),
       remaining: Math.max(0, Math.ceil(q.time - (Date.now() - g.t0) / 1000)),
-      done: Object.values(g.players).filter(x => x.ans).length };
+      done: g.nbReponses };
   }
   if (g.state === 'reveal') return { ...base, state: 'reveal', question: questionPourEcran(), reveal: g.lastReveal };
   if (g.state === 'end') return { ...base, state: 'end', top: g.top };
   return { ...base, state: 'lobby' };
 }
 
+// Envoie le nombre de réponses à l'animateur au plus 4 fois par seconde
+// (avec 200 joueurs qui répondent en même temps, ça évite 200 messages d'affilée)
+function envoyerCompteur() {
+  if (g.compteurPrevu) return;
+  g.compteurPrevu = setTimeout(() => {
+    g.compteurPrevu = null;
+    io.to(g.host).emit('host:count', { done: g.nbReponses, total: Object.keys(g.players).length });
+  }, 250);
+}
+
+// Écoute un message en toute sécurité : un message mal formé (envoyé par un téléphone bugué
+// ou par quelqu'un de malin) ne peut plus faire planter le serveur et arrêter la partie.
+function ecouter(s, nom, fn) {
+  s.on(nom, (data, cb) => {
+    try { fn(data === undefined || data === null ? {} : data, typeof cb === 'function' ? cb : () => {}); }
+    catch (e) { console.error(`Erreur sur le message "${nom}" :`, e.message); }
+  });
+}
+
 io.on('connection', s => {
   // L'écran animateur s'ouvre. Il garde une "clé d'animateur" secrète dans l'onglet :
   //  - avec la bonne clé, il reprend sa partie (même après un rechargement) ;
   //  - sans la clé, il ne peut pas écraser une partie en cours, sauf avec le mot de passe admin.
-  s.on('host:create', ({ pin, key, nouvelle, password } = {}) => {
+  ecouter(s, 'host:create', ({ pin, key, nouvelle, password }) => {
     const estHote = g && pin === g.pin && key === g.hostKey;
     if (estHote && !nouvelle) { g.host = s.id; return s.emit('host:state', etatPourHote()); }
     const enCours = g && g.state !== 'end' && Object.keys(g.players).length > 0;
     if (enCours && !estHote && password !== ADMIN_PASSWORD) return s.emit('host:busy', { wrong: password !== undefined });
-    if (g) clearTimeout(g.timer);
+    if (g) { clearTimeout(g.timer); clearTimeout(g.compteurPrevu); }
     g = { pin: String(1000 + Math.floor(Math.random() * 9000)), hostKey: crypto.randomUUID(), state: 'lobby', idx: -1, players: {}, host: s.id, showText: false };
     s.emit('host:created', { pin: g.pin, key: g.hostKey });
   });
-  s.on('host:opts', v => { if (g && s.id === g.host) g.showText = !!v; });
-  s.on('host:next', () => {
+  ecouter(s, 'host:opts', v => { if (g && s.id === g.host) g.showText = v === true; });
+  ecouter(s, 'host:next', () => {
     if (!g || s.id !== g.host) return;
     if (g.state === 'question') reveal(); else if (g.state !== 'end') nextQ();
   });
-  s.on('player:join', ({ pin, name }, cb) => {
+  ecouter(s, 'player:join', ({ pin, name }, cb) => {
     if (!g || pin !== g.pin || g.state !== 'lobby') return cb({ error: 'Code invalide ou partie déjà lancée.' });
     const key = crypto.randomUUID();
     g.players[key] = { sid: s.id, name: String(name || 'Joueur').replace(/[<>&"'`]/g, '').slice(0, 16) || 'Joueur', score: 0, jokers: { ...START_JOKERS }, removed: [] };
@@ -146,21 +165,20 @@ io.on('connection', s => {
     cb({ ok: true, jokers: g.players[key].jokers, key, pin: g.pin, name: g.players[key].name });
   });
   // Un joueur revient (téléphone verrouillé, Wi-Fi coupé, page rechargée…)
-  s.on('player:rejoin', ({ pin, key } = {}, cb = () => {}) => {
+  ecouter(s, 'player:rejoin', ({ pin, key }, cb) => {
     const p = g && pin === g.pin && g.players[key];
     if (!p) return cb({ error: 'Partie introuvable.' });
     p.sid = s.id; s.data.key = key; s.join(salle());
     cb({ ok: true, ...etatPourJoueur(p) });
   });
-  s.on('player:answer', ({ choice }) => {
+  ecouter(s, 'player:answer', ({ choice }) => {
     const p = joueurDe(s);
-    if (!p || g.state !== 'question' || p.ans) return;
+    if (!p || g.state !== 'question' || p.ans || ![0, 1, 2, 3].includes(choice)) return;
     p.ans = { choice, t: Date.now() - g.t0 };
-    const done = Object.values(g.players).filter(x => x.ans).length;
-    io.to(g.host).emit('host:count', { done, total: Object.keys(g.players).length });
-    if (done === Object.keys(g.players).length) reveal();
+    g.nbReponses++;
+    if (g.nbReponses === Object.keys(g.players).length) reveal(); else envoyerCompteur();
   });
-  s.on('player:joker', ({ type }, cb) => {
+  ecouter(s, 'player:joker', ({ type }, cb) => {
     const p = joueurDe(s);
     if (!p || g.state !== 'question' || p.ans || !(p.jokers[type] > 0)) return cb({ error: 'Joker indisponible.' });
     const q = Q[g.idx];

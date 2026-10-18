@@ -50,7 +50,9 @@ function afficherQuestion(q,restant){
   v.innerHTML=`<p class="hint">Question ${q.n}/${q.total}</p><h1>${q.text}</h1><div class="timer" id="t">${t}</div>
    <div class="grid">${q.options.map((o,i)=>`<div class="opt o${i}" id="o${i}">${SH[i]} ${o}</div>`).join('')}</div>
    <p class="hint" id="c">0 réponse</p>${btn('Révéler la réponse','rv')}`;
-  tick=setInterval(()=>{t--;if(t>0)Sons.tic(t);const e=document.getElementById('t');if(e)e.textContent=Math.max(t,0)},1000);
+  // Le chrono se calcule à partir de l'heure de fin : il reste juste même si l'ordinateur ralentit
+  const fin=Date.now()+restant*1000;
+  tick=setInterval(()=>{const r=Math.max(0,Math.ceil((fin-Date.now())/1000));if(r===t)return;t=r;if(t>0)Sons.tic(t);const e=document.getElementById('t');if(e)e.textContent=t},200);
 }
 function compter({done,total}){const e=document.getElementById('c');if(e)e.textContent=`${done}/${total} réponses`}
 
